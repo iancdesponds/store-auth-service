@@ -1,54 +1,27 @@
 pipeline {
     agent any
-    
-    tools {
-        maven 'maven-3'
-        jdk 'jdk-21'
-    }
-    
     environment {
         SERVICE = 'auth'
         NAME = "iancdesponds/${env.SERVICE}"
-        REGISTRY_CREDENTIALS = 'dockerhub-credentials'
     }
-    
     stages {
-        stage('Checkout Dependencies') {
+        stage('Dependecies') {
             steps {
-                script {
-                    dir('libs/account') {
-                        git branch: 'main', url: 'https://github.com/iancdesponds/store-account.git'
-                        sh 'mvn clean install -DskipTests'
-                    }
-                    
-                    dir('libs/auth') {
-                        git branch: 'main', url: 'https://github.com/iancdesponds/store-auth.git'
-                        sh 'mvn clean install -DskipTests'
-                    }
-                }
+                build job: 'auth', wait: true
             }
         }
-        
         stage('Build') { 
             steps {
                 sh 'mvn -B -DskipTests clean package'
             }
         }      
-        
-        stage('Build & Push Docker Image') {
+        stage('Build & Push Image') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: env.REGISTRY_CREDENTIALS, 
-                                                   usernameVariable: 'USERNAME', 
-                                                   passwordVariable: 'TOKEN')]) {
-                        sh """
-                            docker login -u \$USERNAME -p \$TOKEN
-                            docker build -t ${env.NAME}:latest .
-                            docker build -t ${env.NAME}:${env.BUILD_NUMBER} .
-                            docker push ${env.NAME}:latest
-                            docker push ${env.NAME}:${env.BUILD_NUMBER}
-                        """
-                    }
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credential', usernameVariable: 'USERNAME', passwordVariable: 'TOKEN')]) {
+                    sh "docker login -u $USERNAME -p $TOKEN"
+                    sh "docker buildx create --use --platform=linux/arm64,linux/amd64 --node multi-platform-builder-${env.SERVICE} --name multi-platform-builder-${env.SERVICE}"
+                    sh "docker buildx build --platform=linux/arm64,linux/amd64 --push --tag ${env.NAME}:latest --tag ${env.NAME}:${env.BUILD_ID} -f Dockerfile ."
+                    sh "docker buildx rm --force multi-platform-builder-${env.SERVICE}"
                 }
             }
         }
